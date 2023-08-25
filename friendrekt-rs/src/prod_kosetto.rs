@@ -1,6 +1,7 @@
 use serde::Deserialize;
 
 // Kosetto user
+#[allow(non_snake_case)]
 #[derive(Deserialize)]
 pub struct User {
     pub address: String,
