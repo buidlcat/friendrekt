@@ -1,12 +1,15 @@
 // Heavily based on:
 // https://github.com/evmcheb/friendrekt
 
+mod bindings;
 mod prod_kosetto;
 
+use bindings::shares::shares::shares;
+use bindings::sniper::sniper::sniper;
 use dotenv::dotenv;
 use ethers::prelude::*;
 use prod_kosetto::{TwitterInfo, User};
-use std::{env, str::FromStr, time::Duration};
+use std::{env, str::FromStr, sync::Arc, time::Duration};
 
 async fn get_followers(id: String) -> u64 {
     let req_url = format!("http://127.0.0.1:8000/{}", id);
@@ -54,8 +57,22 @@ async fn twitter_id_search(address: Address) -> Option<TwitterInfo> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let ws_url: String = env::var("BASE_WSS_URL").expect("BASE_WSS_URL is not set");
+    let private_key: String = env::var("PRIVATE_KEY").expect("PRIVATE_KEY is not set");
+    let ft_address: String = env::var("FT_ADDRESS").expect("FT_ADDRESS must be set in .env");
 
     let provider = Provider::<Ws>::connect(ws_url).await?;
+    let cid = provider.get_chainid().await?.as_u64();
+    let signer: LocalWallet = private_key
+        .parse::<LocalWallet>()
+        .unwrap()
+        .with_chain_id(cid);
+
+    let provider = Arc::new(SignerMiddleware::new(provider, signer));
+
+    let _friendtech = Arc::new(shares::new(
+        Address::from_str(&ft_address).unwrap(),
+        provider.clone(),
+    ));
 
     let mut stream = provider.subscribe_blocks().await?.take(1);
     while let Some(block) = stream.next().await {
@@ -74,8 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 if tx.value != U256::zero()
-                    && tx.to.unwrap()
-                        != Address::from_str("0xCF205808Ed36593aa40a44F10c7f7C2F67d4A4d4").unwrap()
+                    && tx.to.unwrap() != _friendtech.address()
                     && tx.input.len() != 68
                 {
                     continue;
@@ -104,5 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    Ok(())
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
+    }
 }
