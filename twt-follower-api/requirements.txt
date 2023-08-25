@@ -1,0 +1,4 @@
+twitter-api-client
+fastapi[all]
+requests
+uvicorn
