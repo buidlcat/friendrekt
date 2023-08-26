@@ -17,14 +17,16 @@ contract Sniper is Guard {
     }
 
     /***
-     * @notice Snipe a single share 
+     * @notice Snipe a single share
      * @param shareSubject The address of the subjects
      * @param maxwant The maximum amount of shares to buy.
      * @param limit Revert if the current supply is greater than limit
      */
     function doSnipeManyShares(
-        address[] calldata shareSubject, uint256[] calldata maxwant, uint256[] calldata limit
-        ) external payable guard {
+        address[] calldata shareSubject,
+        uint256[] calldata maxwant,
+        uint256[] calldata limit
+    ) external payable guard {
         uint256 length = shareSubject.length;
         for (uint256 i; i < length; i++) {
             // Check if the supply is 0
@@ -37,11 +39,17 @@ contract Sniper is Guard {
             uint256 to_buy = maxwant[i] - balance;
             // Get out current eth balance
             uint256 eth_balance = address(this).balance;
-            uint256 getBuyPriceAfterFee = ft.getBuyPriceAfterFee(shareSubject[i], to_buy);
+            uint256 getBuyPriceAfterFee = ft.getBuyPriceAfterFee(
+                shareSubject[i],
+                to_buy
+            );
             // Iterate down until we can buy
             while (eth_balance < getBuyPriceAfterFee) {
                 to_buy -= 1;
-                getBuyPriceAfterFee = ft.getBuyPriceAfterFee(shareSubject[i], to_buy);
+                getBuyPriceAfterFee = ft.getBuyPriceAfterFee(
+                    shareSubject[i],
+                    to_buy
+                );
             }
             ft.buyShares{value: getBuyPriceAfterFee}(shareSubject[i], to_buy);
         }
@@ -52,8 +60,14 @@ contract Sniper is Guard {
      * @param shareSubject The address of the subject
      * @param maxwant The n of shares to buy.
      */
-    function buyShares(address shareSubject, uint256 amount) external payable guard {
-        uint256 getBuyPriceAfterFee = ft.getBuyPriceAfterFee(shareSubject, amount);
+    function buyShares(
+        address shareSubject,
+        uint256 amount
+    ) external payable guard {
+        uint256 getBuyPriceAfterFee = ft.getBuyPriceAfterFee(
+            shareSubject,
+            amount
+        );
         ft.buyShares{value: getBuyPriceAfterFee}(shareSubject, amount);
     }
 
@@ -71,15 +85,21 @@ contract Sniper is Guard {
      * @dev Only callable by the owner
      */
     function returnETH() external payable onlyowner {
-        (bool success, ) = payable(msg.sender).call{value: address(this).balance}("");
+        (bool success, ) = payable(msg.sender).call{
+            value: address(this).balance
+        }("");
         require(success);
     }
 
     /***
      * @notice Admin func
      */
-    function execute(address target, bytes memory data, uint256 _value) external onlyowner {
-        (bool success,) = target.call{value: _value}(data);
+    function execute(
+        address target,
+        bytes memory data,
+        uint256 _value
+    ) external onlyowner {
+        (bool success, ) = target.call{value: _value}(data);
         require(success, "call failed");
     }
 
