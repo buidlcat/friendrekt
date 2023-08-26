@@ -16,7 +16,7 @@ pub struct ApiResponse {
 }
 
 // Hold some info about a Twitter user
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TwitterInfo {
     pub twitter_username: String,
     pub twitter_user_id: String,

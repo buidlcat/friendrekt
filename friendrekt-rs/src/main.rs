@@ -3,16 +3,20 @@
 
 mod bindings;
 mod bset;
+mod fasthttp;
+mod math;
 mod prod_kosetto;
 
 use bindings::shares::shares::shares;
 use bindings::sniper::sniper::sniper;
 use bset::FIFOCache;
 use dotenv::dotenv;
-use ethers::prelude::*;
+use ethers::{prelude::*, types::transaction::eip2930::AccessList, utils::hex};
 use prod_kosetto::{TwitterInfo, User};
 use std::{collections::HashMap, env, str::FromStr, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
+
+const MAX: u64 = 100;
 
 async fn get_followers(id: String) -> u64 {
     let req_url = format!("http://127.0.0.1:8000/{}", id);
@@ -42,11 +46,20 @@ async fn twitter_id_search(address: Address) -> Option<TwitterInfo> {
                 if let Ok(response) = serde_json::from_str::<User>(&data) {
                     let followers = get_followers(response.twitterUserId.clone()).await;
 
+                    let supply_limit = match followers {
+                        f if f > 1_000_000 => MAX,
+                        f if f > 500_000 => 60,
+                        f if f > 250_000 => 60,
+                        f if f > 100_000 => 40,
+                        f if f > 20_000 => 30,
+                        _ => 0,
+                    };
+
                     return Some(TwitterInfo {
                         twitter_username: response.twitterUsername,
                         twitter_user_id: response.twitterUserId,
                         followers,
-                        supply_limit: 0,
+                        supply_limit,
                     });
                 }
             }
@@ -62,6 +75,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ws_url: String = env::var("BASE_WSS_URL").expect("BASE_WSS_URL is not set");
     let private_key: String = env::var("PRIVATE_KEY").expect("PRIVATE_KEY is not set");
     let ft_address: String = env::var("FT_ADDRESS").expect("FT_ADDRESS must be set in .env");
+    let sniper_address: String =
+        env::var("SNIPER_ADDRESS").expect("SNIPER_ADDRESS must be set in .env");
 
     let provider = Provider::<Ws>::connect(ws_url).await?;
     let cid = provider.get_chainid().await?.as_u64();
@@ -73,16 +88,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provider = Arc::new(SignerMiddleware::new(provider, signer));
     println!("Connected to {:?} with ChainID {}", provider.address(), cid);
 
+    let _share_sniper = Arc::new(sniper::new(
+        Address::from_str(&sniper_address).unwrap(),
+        provider.clone(),
+    ));
+
     let _friendtech = Arc::new(shares::new(
         Address::from_str(&ft_address).unwrap(),
         provider.clone(),
     ));
 
+    let amount = U256::from(5);
+    println!("-------------------");
+    println!("friend.tech share calculations.\nAmount is hardcoded to 5:");
+    for supply in 1..41 {
+        if supply % 5 != 0 && supply != 1 {
+            continue;
+        }
+
+        let price = math::get_price(U256::from(supply), amount);
+        let price = math::wei_to_eth(price);
+        println!("Cost for {} shares @ {}: {}", amount, supply, price);
+    }
+
     let blockclient = provider.clone();
     tokio::spawn(async move {
         let mut stream = blockclient.subscribe_blocks().await.unwrap();
         while let Some(block) = stream.next().await {
-            let block = provider
+            let block = blockclient
                 .get_block_with_txs(block.hash.unwrap())
                 .await
                 .unwrap();
@@ -94,8 +127,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let address_to_info =
                         Arc::new(Mutex::new(HashMap::<Address, TwitterInfo>::new()));
                     let friendtech = _friendtech.clone();
+                    let share_sniper = _share_sniper.clone();
+                    let fasthttp =
+                        fasthttp::FastHttp::new("https://mainnet-sequencer.base.org/".to_string());
 
                     tokio::spawn(async move {
+                        let mut current_nonce = blockclient
+                            .get_transaction_count(blockclient.address(), None)
+                            .await
+                            .unwrap();
+
                         let mut seen = FIFOCache::<H256>::new(10);
                         let buy_sig = Bytes::from_str("0x6945b123").unwrap();
                         let relay_txn_sig = Bytes::from_str("0xd764ad0b").unwrap();
@@ -127,17 +168,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let mut address_to_info = address_to_info.lock().await;
                             let info = match address_to_info.get(&tx.from) {
                                 Some(info) => {
-                                    // println!(
-                                    //     "Found Twitter user in cache! {}",
-                                    //     info.twitter_user_id
-                                    // );
-
+                                    // found twitter info cache
                                     Some(info.clone())
                                 }
                                 None => {
-                                    // println!(
-                                    //     "From address not found in Twitter cache, fetching..."
-                                    // );
                                     if let Some(live_info) = twitter_id_search(tx.from).await {
                                         println!(
                                             "[buyShares] Put Twitter user in cache! {} – Followers: {}",
@@ -170,15 +204,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
 
                             let share_subject = Address::from_slice(&tx.input[16..36]);
+                            let max_fee = tx.max_fee_per_gas.unwrap();
+                            let prio_fee = tx.max_priority_fee_per_gas.unwrap();
 
                             println!("-------------------");
-                            println!("buyShares executed on: {:?}", share_subject);
+                            println!("buyShares on a worthy subject: {:?}", share_subject);
                             println!("-------------------");
-                            println!("Performing reverse lookup on {:?}", share_subject);
-                            println!("Found Twitter user: {}", info.twitter_user_id);
                             println!("Followers: {}", info.followers);
                             println!("Supply Limit: {}", info.supply_limit);
                             println!("\n***\n");
+
+                            let binding = share_sniper
+                                .do_snipe_many_shares(
+                                    vec![tx.from],
+                                    vec![U256::from(amount)],
+                                    vec![U256::from(info.supply_limit)],
+                                )
+                                .calldata()
+                                .unwrap();
+
+                            let txn = Eip1559TransactionRequest {
+                                to: Some(NameOrAddress::Address(share_sniper.address())),
+                                from: Some(blockclient.address()),
+                                nonce: Some(current_nonce),
+                                gas: Some(U256::from(1_000_000)),
+                                value: None,
+                                data: Some(binding),
+                                chain_id: Some(U64::from(cid)),
+                                max_priority_fee_per_gas: Some(prio_fee),
+                                max_fee_per_gas: Some(max_fee),
+                                access_list: AccessList::default(),
+                            }
+                            .into();
+
+                            let sig = blockclient
+                                .sign_transaction(&txn, *txn.from().unwrap())
+                                .await
+                                .unwrap();
+
+                            let raw = txn.rlp_signed(&sig);
+                            let hash = fasthttp
+                                .send_request(format!("0x{}", hex::encode(raw)))
+                                .await;
+
+                            println!(
+                                "{} {} Sent snipe: https://basescan.org/tx/{:#?}#eventlog",
+                                info.twitter_username, info.followers, hash
+                            );
+
+                            current_nonce += U256::one();
                         } else if tx.input.starts_with(&relay_txn_sig) {
                             let address_to_info_2 = address_to_info.clone();
 
@@ -201,17 +275,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                             match twitter_id_search(address).await {
                                 Some(info) => {
-                                    // println!(
-                                    //     "Found Twitter user in cache! {}",
-                                    //     info.twitter_user_id
-                                    // );
-
+                                    // found twitter info cache
                                     Some(info.clone())
                                 }
                                 None => {
-                                    // println!(
-                                    //     "From address not found in Twitter cache, fetching..."
-                                    // );
                                     if let Some(live_info) = twitter_id_search(address).await {
                                         println!(
                                             "[relaxTxn] Put Twitter user in cache! {} – Followers: {}",
