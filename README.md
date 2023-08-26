@@ -67,7 +67,7 @@ python3 -m guvicorn main:app --reload
 
 ### Contracts
 
-There are also smart contracts included in the project. They have added
+There are also smart contracts included in the project. They have additional
 features for buying shares compared to the friend.tech contracts. To build
 the contracts, you need to have `forge` installed. Then follow these steps:
 
