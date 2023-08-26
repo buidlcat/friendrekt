@@ -149,8 +149,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             seen.insert(tx.hash);
                         }
 
-                        // buyShares listener
                         if tx.input.starts_with(&buy_sig) && tx.input.len() == 68 {
+                            // tx that bought shares
                             if tx.to.is_none() {
                                 return;
                             }
@@ -254,6 +254,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                             current_nonce += U256::one();
                         } else if tx.input.starts_with(&relay_txn_sig) {
+                            // From my testing, I haven't seen any relay_txn_sig txns come through.
+                            // Could be a bug in my code, but I suspect it's just not used anymore.
                             let address_to_info_2 = address_to_info.clone();
 
                             let event = blockclient.get_transaction_receipt(tx.hash).await.unwrap();
@@ -298,6 +300,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             };
                         } else if tx.input.len() == 0 {
+                            // iiuc this is a simple ETH transfer
                             let address_to_info_3 = address_to_info.clone();
 
                             if tx.to.is_none() {
