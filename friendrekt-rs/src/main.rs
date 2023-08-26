@@ -46,6 +46,9 @@ async fn twitter_id_search(address: Address) -> Option<TwitterInfo> {
                 if let Ok(response) = serde_json::from_str::<User>(&data) {
                     let followers = get_followers(response.twitterUserId.clone()).await;
 
+                    // are we late? the supply_limit is the max shares
+                    // we'd be willing to buy at each tier of followers
+                    // this limit is checked in Sniper.sol
                     let supply_limit = match followers {
                         f if f > 1_000_000 => MAX,
                         f if f > 500_000 => 60,

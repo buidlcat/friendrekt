@@ -2,7 +2,7 @@
 
 Read the [breakdown](https://kg.zaaane.com/mev/friend-tech-sniper) for more
 information on this repository. The Rust & Python components need to be running
-simultaneously for the bot to work.
+simultaneously for the bot to work. Thank you to [evmcheb for the thread](https://twitter.com/evmcheb/status/1694614245516955709) and for sharing the [original repo](https://github.com/evmcheb/friendrekt).
 
 ## How to run
 
@@ -13,6 +13,17 @@ transactions at the right time with the right values.
 
 To run the Rust project (`friendrekt-rs`) you need to have Rust installed. Then
 follow these steps:
+
+1. Create a .env file with the following values:
+
+```bash
+BASE_WSS_URL=wss://base-mainnet.blastapi.io/{your_secret_id}
+FT_ADDRESS=0xCF205808Ed36593aa40a44F10c7f7C2F67d4A4d4 # friend.tech contract address
+PRIVATE_KEY=...
+SNIPER_ADDRESS=<deploy the smart contracts to get a sniper address>
+```
+
+2. Install dependencies and run the project
 
 ```bash
 cd friendrekt-rs
@@ -64,3 +75,5 @@ the contracts, you need to have `forge` installed. Then follow these steps:
 cd friendrekt-contracts
 forge build
 ```
+
+To deploy the contracts, use forge or Remix, whichever you prefer.
